@@ -13,16 +13,16 @@ using namespace std;
 class Log
 {
 public:
-    //C++11以后,使用局部变量懒汉不用加锁
-    static Log *get_instance()
+    //C++11以后,使用局部变量懒汉不用加锁，因为局部静态变量的初始化是线程安全的，由编译器保证
+    static Log *get_instance() 
     {
-        static Log instance;
+        static Log instance; // 只有第一次调用get_instance()时才会创建实例，保证了只有一个实例
         return &instance;
     }
 
     static void *flush_log_thread(void *args)
     {
-        Log::get_instance()->async_write_log();
+        Log::get_instance()->async_write_log(); // 从阻塞队列中取出日志消息并写入文件
     }
     //可选择的参数有日志文件、日志缓冲区大小、最大行数以及最长日志条队列
     bool init(const char *file_name, int close_log, int log_buf_size = 8192, int split_lines = 5000000, int max_queue_size = 0);
@@ -34,7 +34,7 @@ public:
 private:
     Log();
     virtual ~Log();
-    void *async_write_log()
+    void *async_write_log()  // 不断从阻塞队m_log_queue中取出日志消息并写入文件。这种行为是异步日志记录的典型特征，因为它将日志消息的生成和写入解耦
     {
         string single_log;
         //从阻塞队列中取出一个日志string，写入文件

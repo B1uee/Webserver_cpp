@@ -13,10 +13,10 @@ int main(int argc, char *argv[])
 
     WebServer server;
 
-    //初始化
-    server.init(config.PORT, user, passwd, databasename, config.LOGWrite, 
-                config.OPT_LINGER, config.TRIGMode,  config.sql_num,  config.thread_num, 
-                config.close_log, config.actor_model);
+    //初始化 
+    server.init(config.PORT, user, passwd, databasename, config.LOGWrite,  // 端口号、数据库信息、日志写入方式
+                config.OPT_LINGER, config.TRIGMode,  config.sql_num,  config.thread_num, // 优雅关闭链接、触发组合模式、数据库连接池数量、线程池内的线程数量
+                config.close_log, config.actor_model); // 是否关闭日志、并发模型选择
     
 
     //日志

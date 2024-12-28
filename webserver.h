@@ -45,15 +45,15 @@ public:
 
 public:
     //基础
-    int m_port;
-    char *m_root;
-    int m_log_write;
-    int m_close_log;
+    int m_port; // 监听端口
+    char *m_root; 
+    int m_log_write; // 日志写入方式
+    int m_close_log; // 是否关闭日志
     int m_actormodel;
 
-    int m_pipefd[2];
-    int m_epollfd;
-    http_conn *users;
+    int m_pipefd[2]; // 用于进程间通信的管道文件描述符
+    int m_epollfd;  // epoll文件描述符
+    http_conn *users;  // 指向所有客户端连接的数组
 
     //数据库相关
     connection_pool *m_connPool;
@@ -72,8 +72,8 @@ public:
     int m_listenfd;
     int m_OPT_LINGER;
     int m_TRIGMode;
-    int m_LISTENTrigmode;
-    int m_CONNTrigmode;
+    int m_LISTENTrigmode; // 监听套接字触发模式，监听套接字用于接受新的连接
+    int m_CONNTrigmode; // 连接套接字触发模式，连接套接字用于读写数据
 
     //定时器相关
     client_data *users_timer;

@@ -40,8 +40,8 @@ public:
 
 public:
     time_t expire;
-    
-    void (* cb_func)(client_data *);
+    // 一个函数指针cb_func的声明，该函数接受一个 client_data * 类型的参数，返回类型为 void，可以让指针指向不同的函数
+    void (* cb_func)(client_data *); 
     client_data *user_data;
     util_timer *prev;
     util_timer *next;
@@ -54,7 +54,7 @@ public:
     ~sort_timer_lst();
 
     void add_timer(util_timer *timer);
-    void adjust_timer(util_timer *timer);
+    void adjust_timer(util_timer *timer); // 调整定时器在双向链表中的位置，以保持链表的有序性
     void del_timer(util_timer *timer);
     void tick();
 

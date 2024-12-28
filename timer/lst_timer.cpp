@@ -28,14 +28,14 @@ void sort_timer_lst::add_timer(util_timer *timer)
         head = tail = timer;
         return;
     }
-    if (timer->expire < head->expire)
+    if (timer->expire < head->expire) // 如果新的定时器超时时间小于当前链表中所有定时器的超时时间，则插入链表头部，作为链表新的头节点
     {
         timer->next = head;
         head->prev = timer;
         head = timer;
         return;
     }
-    add_timer(timer, head);
+    add_timer(timer, head); // 否则，调用重载的私有成员函数，将定时器插入到合适的位置，保证链表的升序
 }
 void sort_timer_lst::adjust_timer(util_timer *timer)
 {
@@ -44,18 +44,18 @@ void sort_timer_lst::adjust_timer(util_timer *timer)
         return;
     }
     util_timer *tmp = timer->next;
-    if (!tmp || (timer->expire < tmp->expire))
+    if (!tmp || (timer->expire < tmp->expire)) // 如果 timer 是最后一个节点或 timer 的超时时间小于下一个节点的超时时间，则不需要调整
     {
         return;
     }
-    if (timer == head)
+    if (timer == head) // 若time是头节点，则取出并再次插入，区别在于无pre节点
     {
         head = head->next;
         head->prev = NULL;
         timer->next = NULL;
         add_timer(timer, head);
     }
-    else
+    else // 若time是中间节点，则取出并再次插入
     {
         timer->prev->next = timer->next;
         timer->next->prev = timer->prev;
@@ -162,25 +162,25 @@ int Utils::setnonblocking(int fd)
 //将内核事件表注册读事件，ET模式，选择开启EPOLLONESHOT
 void Utils::addfd(int epollfd, int fd, bool one_shot, int TRIGMode)
 {
-    epoll_event event;
+    epoll_event event; 
     event.data.fd = fd;
 
     if (1 == TRIGMode)
-        event.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
+        event.events = EPOLLIN | EPOLLET | EPOLLRDHUP; // EPOLLIN：表示对应的文件描述符上有数据流可读, EPOLLET：表示将EPOLL设为边缘触发模式，EPOLLRDHUP：表示TCP连接的远端关闭或者半关闭
     else
-        event.events = EPOLLIN | EPOLLRDHUP;
+        event.events = EPOLLIN | EPOLLRDHUP; // ｜：按位或运算符，uint32_t events 是一个32位的掩码
 
     if (one_shot)
-        event.events |= EPOLLONESHOT;
-    epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
-    setnonblocking(fd);
+        event.events |= EPOLLONESHOT; // EPOLLONESHOT：只监听一次事件，当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event); // epoll_ctl：注册要监听的事件类型，EPOLL_CTL_ADD：注册新的fd到epfd中
+    setnonblocking(fd); // 将文件描述符设置为非阻塞模式，以确保在边缘触发模式下不会因为未处理的事件而卡住
 }
 
 //信号处理函数
 void Utils::sig_handler(int sig)
 {
     //为保证函数的可重入性，保留原来的errno
-    int save_errno = errno;
+    int save_errno = errno; 
     int msg = sig;
     send(u_pipefd[1], (char *)&msg, 1, 0);
     errno = save_errno;
@@ -217,8 +217,8 @@ int Utils::u_epollfd = 0;
 class Utils;
 void cb_func(client_data *user_data)
 {
-    epoll_ctl(Utils::u_epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0);
+    epoll_ctl(Utils::u_epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0); // ctl: control，删除epoll事件
     assert(user_data);
-    close(user_data->sockfd);
+    close(user_data->sockfd); // 关闭文件描述符
     http_conn::m_user_count--;
 }
