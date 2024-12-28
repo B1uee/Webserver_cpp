@@ -1,0 +1,41 @@
+2024-12-13 02:26:42.922051 [info]: timer tick
+2024-12-13 02:26:47.922310 [info]: timer tick
+2024-12-13 02:26:52.922660 [info]: timer tick
+2024-12-13 02:26:57.923041 [info]: timer tick
+2024-12-13 02:27:02.923111 [info]: timer tick
+2024-12-13 02:27:05.971917 [info]: deal with the client(172.22.2.135)
+2024-12-13 02:27:05.971983 [info]: adjust timer once
+2024-12-13 02:27:05.972052 [info]: GET / HTTP/1.1
+2024-12-13 02:27:05.972100 [info]: Host: 172.22.2.135:9006
+2024-12-13 02:27:05.972112 [info]: User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0
+2024-12-13 02:27:05.972119 [info]: oop!unknow header: User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0
+2024-12-13 02:27:05.972126 [info]: Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+2024-12-13 02:27:05.972133 [info]: oop!unknow header: Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+2024-12-13 02:27:05.972139 [info]: Accept-Language: en-US,en;q=0.5
+2024-12-13 02:27:05.972146 [info]: oop!unknow header: Accept-Language: en-US,en;q=0.5
+2024-12-13 02:27:05.972152 [info]: Accept-Encoding: gzip, deflate
+2024-12-13 02:27:05.972159 [info]: oop!unknow header: Accept-Encoding: gzip, deflate
+2024-12-13 02:27:05.972165 [info]: Connection: keep-alive
+2024-12-13 02:27:05.972172 [info]: Upgrade-Insecure-Requests: 1
+2024-12-13 02:27:05.972178 [info]: oop!unknow header: Upgrade-Insecure-Requests: 1
+2024-12-13 02:27:05.972185 [info]: Priority: u=0, i
+2024-12-13 02:27:05.972191 [info]: oop!unknow header: Priority: u=0, i
+2024-12-13 02:27:05.972197 [info]: 
+2024-12-13 02:27:05.972300 [info]: request:HTTP/1.1 200 OK
+
+2024-12-13 02:27:05.972316 [info]: request:HTTP/1.1 200 OK
+Content-Length:586
+
+2024-12-13 02:27:05.972323 [info]: request:HTTP/1.1 200 OK
+Content-Length:586
+Connection:keep-alive
+
+2024-12-13 02:27:05.972330 [info]: request:HTTP/1.1 200 OK
+Content-Length:586
+Connection:keep-alive
+
+
+2024-12-13 02:27:05.973177 [info]: send data to the client(172.22.2.135)
+2024-12-13 02:27:05.973198 [info]: adjust timer once
+2024-12-13 02:27:07.923526 [info]: timer tick
+2024-12-13 02:27:12.923717 [info]: timer tick
