@@ -49,7 +49,7 @@ public:
     char *m_root; 
     int m_log_write; // 日志写入方式
     int m_close_log; // 是否关闭日志
-    int m_actormodel;
+    int m_actormodel; // 0: proactor，1:reactor
 
     int m_pipefd[2]; // 用于进程间通信的管道文件描述符
     int m_epollfd;  // epoll文件描述符

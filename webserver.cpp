@@ -3,7 +3,7 @@
 WebServer::WebServer()
 {
     //http_conn类对象
-    users = new http_conn[MAX_FD];
+    users = new http_conn[MAX_FD]; // 创建MAX_FD个http类对象
 
     //root文件夹路径
     char server_path[200];
@@ -132,17 +132,25 @@ void WebServer::eventListen()
     setsockopt(m_listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)); // 允许重用本地地址和端口
     ret = bind(m_listenfd, (struct sockaddr *)&address, sizeof(address)); 
     assert(ret >= 0);
-    ret = listen(m_listenfd, 5); // 参数含义：监听套接字、最大连接数
+    
+    // 当服务器调用 listen 函数后，内核会为该套接字维护一个队列，用于存放已完成三次握手但尚未被 accept 处理的连接。
+    ret = listen(m_listenfd, 5); // 参数含义：监听套接字、监听队列的最大长度
     assert(ret >= 0);
 
     utils.init(TIMESLOT); 
 
-    //epoll创建内核事件表
+    /*
+        服务器接收http请求:
+        浏览器端发出http连接请求，主线程创建http对象接收请求并将所有数据读入对应buffer，
+        将该对象插入任务队列，工作线程从任务队列中取出一个任务进行处理。
+    */
+    // epoll创建内核事件表
+    // epollfd 是一个文件描述符，代表一个 epoll 实例。这个实例管理一个事件表，用于监控多个文件描述符上的事件
     epoll_event events[MAX_EVENT_NUMBER];
-    m_epollfd = epoll_create(5);  // 预计会与 epoll 实例关联的文件描述符数量
+    m_epollfd = epoll_create(5);  // 预计会与 epoll 实例关联的文件描述符数量，现在已经不起作用
     assert(m_epollfd != -1);
 
-    // 添加监听文件描述符到epoll
+    // 添加监听文件描述符到epoll(将 listenfd 添加到 epollfd 所管理的事件表中)
     utils.addfd(m_epollfd, m_listenfd, false, m_LISTENTrigmode); //
     http_conn::m_epollfd = m_epollfd; 
 
@@ -199,7 +207,7 @@ void WebServer::adjust_timer(util_timer *timer)
 
 void WebServer::deal_timer(util_timer *timer, int sockfd)
 {
-    timer->cb_func(&users_timer[sockfd]); // 调用定时器的回调函数,关闭连接
+    timer->cb_func(&users_timer[sockfd]); // 调用定时器的回调函数,从epollfd中删除sockfd，并关闭sockfd
     if (timer)
     {
         utils.m_timer_lst.del_timer(timer);  // 从链表中删除定时器
@@ -273,7 +281,7 @@ bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
         {
             switch (signals[i]) // 根据信号值判断是否超时或需要停止服务器
             {
-            case SIGALRM: 
+            case SIGALRM:  // 超时发送的信号
             {
                 timeout = true;
                 break;
@@ -293,14 +301,21 @@ void WebServer::dealwithread(int sockfd)
 {
     /*
         reactor和proactor的区别：
-        reactor：主线程只负责监听事件，当事件发生时，将事件分发给工作线程进行处理，适合复杂的事件处理逻辑
-        proactor：主线程不仅负责监听事件，还负责完成事件的初步处理（如读取数据），然后将处理后的数据交给工作线程进行进一步处理，系统或库完成事件处理，应用程序只处理结果，适合高效 I/O 操作。
+        reactor：非阻塞同步网络模式，感知的是就绪可读写事件，来了事件操作系统通知应用进程，让应用进程来处理，比如应用进程主动调用 read 方法来完成数据的读取
 
+        proactor：异步网络模式，感知的是已完成的读写事件。在发起异步读写请求时，需要传入数据缓冲区的地址（用来存放结果数据）等信息，
+        这样系统内核才可以自动帮我们把数据的读写工作完成，这里的读写工作全程由操作系统来做，并不需要像 Reactor 那样还需要应用进程主动发起 read/write 来读写数据，应用进程直接处理数据。
+        
+        「事件」就是有新连接、有数据可读、有数据可写的这些 I/O 事件
+        「处理」包含从驱动读取到内核以及从内核读取到用户空间
+
+        而由于linux的异步IO不成熟，在本函数中采用了同步IO模拟的proactor，先完成读取（同步的，会阻塞），然后将请求加入请求队列，工作线程直接处理已经读取好数据的请求；
+        而reactor则是把读取数据的操作也交给工作线程处理，读取完再处理。
     */
     util_timer *timer = users_timer[sockfd].timer;
 
     //reactor
-    if (1 == m_actormodel)
+    if (1 == m_actormodel)   // 主线程等待事件（读、写等），并将其分派给处理程序（这里是线程池）。实际的读操作也由线程池中的工作线程执行，读取完再处理。
     {
         if (timer)
         {
@@ -310,11 +325,11 @@ void WebServer::dealwithread(int sockfd)
         //若监测到读事件，将该事件放入请求队列
         m_pool->append(users + sockfd, 0);
 
-        while (true)
+        while (true) // 轮询，确保工作线程的读操作完成，可以理解为同步非阻塞中的同步过程（等待数据传输完成）
         {
-            if (1 == users[sockfd].improv)
+            if (1 == users[sockfd].improv) // 数据读操作完成（无论成功与否）
             {
-                if (1 == users[sockfd].timer_flag)
+                if (1 == users[sockfd].timer_flag) // 定时器超时，读失败时会改
                 {
                     deal_timer(timer, sockfd);
                     users[sockfd].timer_flag = 0;
@@ -327,9 +342,9 @@ void WebServer::dealwithread(int sockfd)
     else
     {
         //proactor
-        if (users[sockfd].read_once())
+        if (users[sockfd].read_once())  // 主线程由于是同步IO模拟的，先读取数据（阻塞在这），然后将请求加入请求队列，工作线程直接处理已经读取好数据的请求
         {
-            LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));
+            LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr)); // inet_ntoa：将网络地址转换为点分十进制的字符串
 
             //若监测到读事件，将该事件放入请求队列
             m_pool->append_p(users + sockfd);
@@ -399,43 +414,50 @@ void WebServer::eventLoop()
 
     while (!stop_server)
     {
+        /*
+            epoll_wait 会返回所有就绪事件的数量。
+            int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
+            timeout：是超时时间，单位是毫秒，-1表示一直阻塞（至少有一个事件发生），0表示立即返回，>0表示等待指定时间
+        */
+       //等待所监控文件描述符上有事件的产生
         int number = epoll_wait(m_epollfd, events, MAX_EVENT_NUMBER, -1);
         if (number < 0 && errno != EINTR)
         {
             LOG_ERROR("%s", "epoll failure");
             break;
         }
-
-        for (int i = 0; i < number; i++)
+         
+        
+        for (int i = 0; i < number; i++) 
         {
-            int sockfd = events[i].data.fd;
+            int sockfd = events[i].data.fd; // 获取就绪事件的文件描述符
 
             //处理新到的客户连接
-            if (sockfd == m_listenfd)
+            if (sockfd == m_listenfd) // listenfd是监听套接字，处理多个客户连接
             {
-                bool flag = dealclientdata();
+                bool flag = dealclientdata();  // 只有LT模式返回true，因为会一直唤醒
                 if (false == flag)
-                    continue;
+                    continue; // ET一口气读完，直接跳到下一个事件
             }
-            else if (events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
+            else if (events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) // 客户端关闭连接一半、挂起事件（连接断开/出错）、错误事件（fd上发生错误）
             {
                 //服务器端关闭连接，移除对应的定时器
                 util_timer *timer = users_timer[sockfd].timer;
-                deal_timer(timer, sockfd);
+                deal_timer(timer, sockfd); // 删除定时器、sockfd，并从epollfd中删除sockfd
             }
             //处理信号
-            else if ((sockfd == m_pipefd[0]) && (events[i].events & EPOLLIN))
+            else if ((sockfd == m_pipefd[0]) && (events[i].events & EPOLLIN)) // 管道读取端且事件为可读，说明是定时器或终止信号
             {
                 bool flag = dealwithsignal(timeout, stop_server);
                 if (false == flag)
                     LOG_ERROR("%s", "dealclientdata failure");
             }
             //处理客户连接上接收到的数据
-            else if (events[i].events & EPOLLIN)
+            else if (events[i].events & EPOLLIN)  // read
             {
                 dealwithread(sockfd);
             }
-            else if (events[i].events & EPOLLOUT)
+            else if (events[i].events & EPOLLOUT) // write
             {
                 dealwithwrite(sockfd);
             }

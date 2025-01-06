@@ -3,6 +3,9 @@
 #include <mysql/mysql.h>
 #include <fstream>
 
+// 从状态机负责读取报文的一行，主状态机负责对该行数据进行解析，主状态机内部调用从状态机，从状态机驱动主状态机。
+
+
 //定义http响应的一些状态信息
 const char *ok_200_title = "OK";
 const char *error_400_title = "Bad Request";
@@ -50,30 +53,40 @@ void http_conn::initmysql_result(connection_pool *connPool)
 //对文件描述符设置非阻塞
 int setnonblocking(int fd)
 {
-    int old_option = fcntl(fd, F_GETFL);
-    int new_option = old_option | O_NONBLOCK;
-    fcntl(fd, F_SETFL, new_option);
+    int old_option = fcntl(fd, F_GETFL); // 获取文件描述符旧状态, F_GETFL表示获取文件描述符的状态标志
+    int new_option = old_option | O_NONBLOCK; // 设置为非阻塞
+    fcntl(fd, F_SETFL, new_option); // F_SETFL表示设置文件描述符的状态标志
     return old_option;
 }
 
-//将内核事件表注册读事件，ET模式，选择开启EPOLLONESHOT
+//将内核事件表注册读事件，ET模式，选择开启EPOLLONESHOT，针对客户端连接的描述符，listenfd不用开启
 void addfd(int epollfd, int fd, bool one_shot, int TRIGMode)
 {
-    epoll_event event;
+    epoll_event event; 
     event.data.fd = fd;
 
     if (1 == TRIGMode)
-        event.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
+        event.events = EPOLLIN | EPOLLET | EPOLLRDHUP; // 可读，边缘触发，对端关闭连接
     else
-        event.events = EPOLLIN | EPOLLRDHUP;
+        event.events = EPOLLIN | EPOLLRDHUP; 
 
     if (one_shot)
-        event.events |= EPOLLONESHOT;
+        event.events |= EPOLLONESHOT;  // 事件被触发后，epoll 会停止监视该文件描述符
+
+    /*
+        int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
+        ctl -> control
+        op：表示动作，用3个宏来表示：
+        EPOLL_CTL_ADD (注册新的fd到epfd)，
+        EPOLL_CTL_MOD (修改已经注册的fd的监听事件)，
+        EPOLL_CTL_DEL (从epfd删除一个fd)；
+    */
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
+
     setnonblocking(fd);
 }
 
-//从内核时间表删除描述符
+//从内核事件表删除描述符
 void removefd(int epollfd, int fd)
 {
     epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, 0);
@@ -81,12 +94,18 @@ void removefd(int epollfd, int fd)
 }
 
 //将事件重置为EPOLLONESHOT
+/*
+    将事件重置为EPOLLONESHOT，这样的话，一个socket连接在任意时刻都只被一个线程处理。
+    原理是从监听队列中取出一个事件，然后处理这个事件，处理完之后，再次将这个socket加入到监听队列中。
+    中间的这个过程，这个socket是不会被监听的，也就是不会有其他线程来处理这个socket。
+    而中间新到来的数据，会被内核缓存起来，等到这个socket再次被监听的时候，会再次触发EPOLLIN事件。
+*/
 void modfd(int epollfd, int fd, int ev, int TRIGMode)
 {
     epoll_event event;
     event.data.fd = fd;
 
-    if (1 == TRIGMode)
+    if (1 == TRIGMode) // ET模式
         event.events = ev | EPOLLET | EPOLLONESHOT | EPOLLRDHUP;
     else
         event.events = ev | EPOLLONESHOT | EPOLLRDHUP;
@@ -94,8 +113,8 @@ void modfd(int epollfd, int fd, int ev, int TRIGMode)
     epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 }
 
-int http_conn::m_user_count = 0;
-int http_conn::m_epollfd = -1;
+int http_conn::m_user_count = 0; // 统计用户数量
+int http_conn::m_epollfd = -1; // epoll文件描述符
 
 //关闭连接，关闭一个连接，客户总量减一
 void http_conn::close_conn(bool real_close)
@@ -103,7 +122,7 @@ void http_conn::close_conn(bool real_close)
     if (real_close && (m_sockfd != -1))
     {
         printf("close %d\n", m_sockfd);
-        removefd(m_epollfd, m_sockfd);
+        removefd(m_epollfd, m_sockfd); // 从epoll内核事件表中删除
         m_sockfd = -1;
         m_user_count--;
     }
@@ -159,7 +178,7 @@ void http_conn::init()
     memset(m_real_file, '\0', FILENAME_LEN);
 }
 
-//从状态机，用于分析出一行内容
+//从状态机的具体实现，用于分析出一行内容
 //返回值为行的读取状态，有LINE_OK,LINE_BAD,LINE_OPEN
 http_conn::LINE_STATUS http_conn::parse_line()
 {
@@ -170,12 +189,12 @@ http_conn::LINE_STATUS http_conn::parse_line()
         if (temp == '\r')
         {
             if ((m_checked_idx + 1) == m_read_idx)
-                return LINE_OPEN;
+                return LINE_OPEN; // 读取的行不完整
             else if (m_read_buf[m_checked_idx + 1] == '\n')
             {
                 m_read_buf[m_checked_idx++] = '\0';
                 m_read_buf[m_checked_idx++] = '\0';
-                return LINE_OK;
+                return LINE_OK; // 完整读取一行
             }
             return LINE_BAD;
         }
@@ -206,6 +225,7 @@ bool http_conn::read_once()
     //LT读取数据
     if (0 == m_TRIGMode)
     {
+        // 从套接字接收数据，存储在m_read_buf缓冲区
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
         m_read_idx += bytes_read;
 
@@ -224,7 +244,7 @@ bool http_conn::read_once()
             bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
             if (bytes_read == -1)
             {
-                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                if (errno == EAGAIN || errno == EWOULDBLOCK) // 数据没准备好，直接返回，表示非阻塞
                     break;
                 return false;
             }
@@ -241,12 +261,15 @@ bool http_conn::read_once()
 //解析http请求行，获得请求方法，目标url及http版本号
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 {
-    m_url = strpbrk(text, " \t");
+    // e.g. GET /562f25980001b1b106000338.jpg HTTP/1.1  或  POST / HTTP1.1
+    m_url = strpbrk(text, " \t"); // 查找输入文本中第一个出现的制表符
     if (!m_url)
     {
         return BAD_REQUEST;
     }
-    *m_url++ = '\0';
+    *m_url++ = '\0'; // 将第一个制表符替换为终止符，并指向下一个字符
+    // 在 C 中，字符串是以 \0 结尾的字符数组，将某个位置的字符替换为 \0，就相当于在这个位置将字符串截断
+    // 因此method只有text前面的方法部分
     char *method = text;
     if (strcasecmp(method, "GET") == 0)
         m_method = GET;
@@ -257,7 +280,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     }
     else
         return BAD_REQUEST;
-    m_url += strspn(m_url, " \t");
+    m_url += strspn(m_url, " \t"); // 跳过前导空格或制表符
     m_version = strpbrk(m_url, " \t");
     if (!m_version)
         return BAD_REQUEST;
@@ -339,27 +362,35 @@ http_conn::HTTP_CODE http_conn::parse_content(char *text)
     return NO_REQUEST;
 }
 
+
+// 主状态机三状态：CHECK_STATE_*
+// 从状态机三状态：LINE_*
 http_conn::HTTP_CODE http_conn::process_read()
 {
     LINE_STATUS line_status = LINE_OK;
     HTTP_CODE ret = NO_REQUEST;
     char *text = 0;
 
+    // 通过while循环，将主从状态机进行封装，对报文的每一行进行循环处理
+    // 主状态机CHECK_STATE_CONTENT，该条件涉及解析消息体；从状态机LINE_OK，该条件涉及解析请求行和请求头部
     while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) || ((line_status = parse_line()) == LINE_OK))
     {
         text = get_line();
+
+        // m_start_line是每一个数据行在m_read_buf中的起始位置
+        // m_checked_idx表示从状态机在m_read_buf中读取的位置
         m_start_line = m_checked_idx;
         LOG_INFO("%s", text);
         switch (m_check_state)
         {
-        case CHECK_STATE_REQUESTLINE:
+        case CHECK_STATE_REQUESTLINE: // 解析请求行
         {
             ret = parse_request_line(text);
             if (ret == BAD_REQUEST)
                 return BAD_REQUEST;
             break;
         }
-        case CHECK_STATE_HEADER:
+        case CHECK_STATE_HEADER:  // 解析请求头
         {
             ret = parse_headers(text);
             if (ret == BAD_REQUEST)
@@ -370,7 +401,7 @@ http_conn::HTTP_CODE http_conn::process_read()
             }
             break;
         }
-        case CHECK_STATE_CONTENT:
+        case CHECK_STATE_CONTENT:  // 解析消息体，仅用于解析POST请求
         {
             ret = parse_content(text);
             if (ret == GET_REQUEST)
@@ -685,16 +716,23 @@ bool http_conn::process_write(HTTP_CODE ret)
     bytes_to_send = m_write_idx;
     return true;
 }
+
+/*
+    各子线程通过process函数对任务进行处理，调用process_read函数和process_write函数,
+    分别完成报文解析与报文响应两个任务
+*/
 void http_conn::process()
 {
     HTTP_CODE read_ret = process_read();
+    // NO_REQUEST，表示请求不完整，需要继续接收请求数据
     if (read_ret == NO_REQUEST)
     {
+        // 注册并监听读事件
         modfd(m_epollfd, m_sockfd, EPOLLIN, m_TRIGMode);
         return;
     }
     bool write_ret = process_write(read_ret);
-    if (!write_ret)
+    if (!write_ret) // 生成响应失败，关闭连接
     {
         close_conn();
     }

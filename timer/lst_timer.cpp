@@ -201,8 +201,8 @@ void Utils::addsig(int sig, void(handler)(int), bool restart)
 //定时处理任务，重新定时以不断触发SIGALRM信号
 void Utils::timer_handler()
 {
-    m_timer_lst.tick();
-    alarm(m_TIMESLOT);
+    m_timer_lst.tick(); // 便利定时器链表，处理到期的定时器
+    alarm(m_TIMESLOT); // 设置一个定时器，在 m_TIMESLOT 秒之后发送一个 SIGALRM 信号给当前进程
 }
 
 void Utils::show_error(int connfd, const char *info)
@@ -217,7 +217,7 @@ int Utils::u_epollfd = 0;
 class Utils;
 void cb_func(client_data *user_data)
 {
-    epoll_ctl(Utils::u_epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0); // ctl: control，删除epoll事件
+    epoll_ctl(Utils::u_epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0); // ctl: control，删除epollfd中的sockfd的监控项
     assert(user_data);
     close(user_data->sockfd); // 关闭文件描述符
     http_conn::m_user_count--;
