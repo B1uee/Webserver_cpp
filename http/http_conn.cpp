@@ -182,11 +182,18 @@ void http_conn::init()
 //返回值为行的读取状态，有LINE_OK,LINE_BAD,LINE_OPEN
 http_conn::LINE_STATUS http_conn::parse_line()
 {
+    /*
+        在HTTP报文中，每一行的数据由\r\n作为结束字符，空行则是仅仅是字符\r\n
+        从状态机负责读取buffer中的数据，将每行数据末尾的\r\n置为\0\0，
+        并更新从状态机在buffer中读取的位置m_checked_idx，以此来驱动主状态机解析
+    */
     char temp;
+    // m_read_idx指向缓冲区m_read_buf的数据末尾的下一个字节
+    //m_checked_idx指向从状态机当前正在分析的字节
     for (; m_checked_idx < m_read_idx; ++m_checked_idx)
     {
         temp = m_read_buf[m_checked_idx];
-        if (temp == '\r')
+        if (temp == '\r') // 如果当前字符是 \r，检查下一个字符是否是 \n
         {
             if ((m_checked_idx + 1) == m_read_idx)
                 return LINE_OPEN; // 读取的行不完整
@@ -198,7 +205,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
             }
             return LINE_BAD;
         }
-        else if (temp == '\n')
+        else if (temp == '\n') // 如果当前字符是 \n，检查前一个字符是否是 \r
         {
             if (m_checked_idx > 1 && m_read_buf[m_checked_idx - 1] == '\r')
             {
@@ -209,7 +216,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
             return LINE_BAD;
         }
     }
-    return LINE_OPEN;
+    return LINE_OPEN; // 遍历结束仍未找到完整的一行，返回 LINE_OPEN，表示行未读完
 }
 
 //循环读取客户数据，直到无数据可读或对方关闭连接
@@ -261,17 +268,17 @@ bool http_conn::read_once()
 //解析http请求行，获得请求方法，目标url及http版本号
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 {
-    // e.g. GET /562f25980001b1b106000338.jpg HTTP/1.1  或  POST / HTTP1.1
-    m_url = strpbrk(text, " \t"); // 查找输入文本中第一个出现的制表符
+    // e.g. GET /562f25980001b1b106000338.jpg HTTP/1.1  或  POST / HTTP/1.1
+    m_url = strpbrk(text, " \t"); // 查找输入文本中第一个出现的制表符，“POST ”的制表符的指针
     if (!m_url)
     {
         return BAD_REQUEST;
     }
-    *m_url++ = '\0'; // 将第一个制表符替换为终止符，并指向下一个字符
+    *m_url++ = '\0'; // 将第一个制表符替换为终止符，并指向下一个字符.“POST ”->“POST\0” 
     // 在 C 中，字符串是以 \0 结尾的字符数组，将某个位置的字符替换为 \0，就相当于在这个位置将字符串截断
     // 因此method只有text前面的方法部分
-    char *method = text;
-    if (strcasecmp(method, "GET") == 0)
+    char *method = text; // “POST\0” 
+    if (strcasecmp(method, "GET") == 0) // 在遇到“\0”前停止
         m_method = GET;
     else if (strcasecmp(method, "POST") == 0)
     {
@@ -280,15 +287,15 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     }
     else
         return BAD_REQUEST;
-    m_url += strspn(m_url, " \t"); // 跳过前导空格或制表符
-    m_version = strpbrk(m_url, " \t");
+    m_url += strspn(m_url, " \t"); // 跳过前导空格或制表符. m_url = "/"的下标 
+    m_version = strpbrk(m_url, " \t"); // m_version = "/<url> "的制表符或空格的指针，此时m_version=" HTTP/1.1"
     if (!m_version)
         return BAD_REQUEST;
-    *m_version++ = '\0';
-    m_version += strspn(m_version, " \t");
+    *m_version++ = '\0'; // "/<url>\0"
+    m_version += strspn(m_version, " \t");  // "HTTP/1.1"
     if (strcasecmp(m_version, "HTTP/1.1") != 0)
         return BAD_REQUEST;
-    if (strncasecmp(m_url, "http://", 7) == 0)
+    if (strncasecmp(m_url, "http://", 7) == 0) // 检查 m_url 是否以 "http://" 开头。strncasecmp 函数进行不区分大小写的比较
     {
         m_url += 7;
         m_url = strchr(m_url, '/');
@@ -299,14 +306,15 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
         m_url += 8;
         m_url = strchr(m_url, '/');
     }
-
+    // 一般不会带有上述两种符号，直接是单独的/或/后面带访问资源，如 “/562f25980001b1b106000338.jpg”
     if (!m_url || m_url[0] != '/')
         return BAD_REQUEST;
     //当url为/时，显示判断界面
     if (strlen(m_url) == 1)
         strcat(m_url, "judge.html");
+
     m_check_state = CHECK_STATE_HEADER;
-    return NO_REQUEST;
+    return NO_REQUEST; // 请求不完整，需要继续读取请求报文数据，即请求行处理完毕，将主状态机转移处理请求头
 }
 
 //解析http请求的一个头部信息
@@ -375,43 +383,43 @@ http_conn::HTTP_CODE http_conn::process_read()
     // 主状态机CHECK_STATE_CONTENT，该条件涉及解析消息体；从状态机LINE_OK，该条件涉及解析请求行和请求头部
     while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) || ((line_status = parse_line()) == LINE_OK))
     {
-        text = get_line();
+        text = get_line(); // return m_read_buf + m_start_line;   m_start_line:没一行在readbuf中的起始位置，后面用\0\0截断，故能一次截断一行（请求行、请求头、空行、消息体）
 
         // m_start_line是每一个数据行在m_read_buf中的起始位置
         // m_checked_idx表示从状态机在m_read_buf中读取的位置
-        m_start_line = m_checked_idx;
+        m_start_line = m_checked_idx; // 此时m_check_idx经过循环体的parse_line已经指向下一部份的开头了
         LOG_INFO("%s", text);
         switch (m_check_state)
         {
-        case CHECK_STATE_REQUESTLINE: // 解析请求行
-        {
-            ret = parse_request_line(text);
-            if (ret == BAD_REQUEST)
-                return BAD_REQUEST;
-            break;
-        }
-        case CHECK_STATE_HEADER:  // 解析请求头
-        {
-            ret = parse_headers(text);
-            if (ret == BAD_REQUEST)
-                return BAD_REQUEST;
-            else if (ret == GET_REQUEST)
+            case CHECK_STATE_REQUESTLINE: // 解析请求行
             {
-                return do_request();
+                ret = parse_request_line(text);
+                if (ret == BAD_REQUEST)
+                    return BAD_REQUEST;
+                break;
             }
-            break;
-        }
-        case CHECK_STATE_CONTENT:  // 解析消息体，仅用于解析POST请求
-        {
-            ret = parse_content(text);
-            if (ret == GET_REQUEST)
-                return do_request();
-            line_status = LINE_OPEN;
-            break;
-        }
-        default:
-            return INTERNAL_ERROR;
-        }
+            case CHECK_STATE_HEADER:  // 解析请求头
+            {
+                ret = parse_headers(text);
+                if (ret == BAD_REQUEST)
+                    return BAD_REQUEST;
+                else if (ret == GET_REQUEST)
+                {
+                    return do_request();
+                }
+                break;
+            }
+            case CHECK_STATE_CONTENT:  // 解析消息体，仅用于解析POST请求
+            {
+                ret = parse_content(text);
+                if (ret == GET_REQUEST)
+                    return do_request();
+                line_status = LINE_OPEN;
+                break;
+            }
+            default:
+                return INTERNAL_ERROR;
+            }
     }
     return NO_REQUEST;
 }

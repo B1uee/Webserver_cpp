@@ -132,9 +132,9 @@ private:
 
     // 存储读取的请求报文数据
     char m_read_buf[READ_BUFFER_SIZE];
-    long m_read_idx; //缓冲区中m_read_buf中数据的最后一个字节的下一个位置
-    long m_checked_idx; // 当前正在分析的字符在缓冲区中的位置
-    int m_start_line;   // m_read_buf中已经解析的字符个数
+    long m_read_idx; //指向缓冲区m_read_buf的数据末尾的下一个字节
+    long m_checked_idx; // 从状态机在m_read_buf中读取的位置
+    int m_start_line;   // 每一个数据行在m_read_buf中的起始位置
     char m_write_buf[WRITE_BUFFER_SIZE]; // 存储发出的响应报文数据
     int m_write_idx; // 写缓冲区中待发送的字节数
     CHECK_STATE m_check_state; // 主状态机当前所处的状态
